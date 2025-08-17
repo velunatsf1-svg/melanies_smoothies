@@ -1,54 +1,34 @@
-# Import python packages
 import streamlit as st
 import pandas as pd
-import requests
-from snowflake.snowpark.functions import col
 
-# Write directly to the app
-st.title("Customize your Smoothie :cup_with_straw:")
-st.write(
-    """Replace this example with your own code!
-    **And if you're new to Streamlit,** check
-    out our easy-to-follow guides at
-    [docs.streamlit.io](https://docs.streamlit.io).
-    """
-)
-cnx= st.connection("snowflake")
-session = cnx.session()
-my_dataframe = session.table("smoothies.public.fruit_options").select (col("FRUIT_NAME"))
-#st.dataframe(data=my_dataframe, use_container_width=True)
-pd_df=my_dataframe.to_pandas()
+st.title("🥤 Pending Smoothie Orders")
 
-ingredients_list=st.multiselect('Chhose up to 5 ingredients', my_dataframe,max_selections=5)
+# ✅ This uses your secrets.toml config
+conn = st.connection("snowflake")
 
-name_on_order = st.text_input("Name on Smoothie")
-st.write("The name on your smoothie will be:", name_on_order)
+# Get pending orders
+def get_pending_orders():
+    with conn.session() as session:
+        results = session.sql("SELECT id, ingredients, name_on_order FROM orders WHERE order_filled = FALSE").collect()
+        return pd.DataFrame(results)
 
-if ingredients_list:
-    ingredients_string=''
-    for fruit_chosen in ingredients_list:
-        ingredients_string += fruit_chosen + " "
+# Mark orders as filled
+def mark_orders_filled(order_ids):
+    if order_ids:
+        id_list = ",".join(map(str, order_ids))
+        with conn.session() as session:
+            session.sql(f"UPDATE orders SET order_filled = TRUE WHERE id IN ({id_list})").collect()
 
-        #search_on=pd_df.loc[pd_df['FRUIT_NAME'] == fruit_chosen, 'SEARCH_ON'].iloc[0]
-        #st.write('The search value for ', fruit_chosen,' is ', search_on, '.')
-        
-        st.subheader(fruit_chosen + ' Nutrition Information')
-        #fruityvice_response = requests.get("https://fruityvice.com/api/fruit/" )
-        #fv_df =st.dataframe(data=fruityvice_response.json(), use_container_width=True)
-    
-    my_insert_stmt = """ insert into smoothies.public.orders(ingredients,name_on_order)
-            values ('""" + ingredients_string + """', '""" + name_on_order + """')"""
+df = get_pending_orders()
 
-    time_to_insert = st.button("Submit Order")
-    
+if df.empty:
+    st.success("🎉 All smoothie orders are filled!")
+else:
+    st.dataframe(df, use_container_width=True)
 
-    if time_to_insert:
-        session.sql(my_insert_stmt).collect()
-    
-    
-#st.write(my_insert_stmt)
-st.stop()
+    selected_ids = st.multiselect("✅ Select orders to mark as filled:", df["id"].tolist())
 
-
-
-st.success('Your Smoothie is ordered!', icon="✅")
+    if st.button("Mark Selected Orders as Filled"):
+        mark_orders_filled(selected_ids)
+        st.success("Marked as filled! Refreshing...")
+        st.experimental_rerun()
